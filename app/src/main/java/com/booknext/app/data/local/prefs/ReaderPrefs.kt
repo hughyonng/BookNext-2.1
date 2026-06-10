@@ -68,6 +68,12 @@ class ReaderPrefs @Inject constructor(
         private val TTS_CLOUD_VOICE = stringPreferencesKey("tts_cloud_voice")
         private val TTS_CLOUD_RATE = stringPreferencesKey("tts_cloud_rate")
         private val TTS_CLOUD_PITCH = stringPreferencesKey("tts_cloud_pitch")
+        private val TTS_ENGINE = stringPreferencesKey("tts_engine")
+        private val AZURE_API_KEY = stringPreferencesKey("azure_api_key")
+        private val BAIDU_API_KEY = stringPreferencesKey("baidu_api_key")
+        private val BAIDU_SECRET_KEY = stringPreferencesKey("baidu_secret_key")
+        private val ALI_API_KEY = stringPreferencesKey("ali_api_key")
+        private val ALI_SECRET_KEY = stringPreferencesKey("ali_secret_key")
         private val ALLOW_TILT_FLIP = booleanPreferencesKey("allow_tilt_flip")
         private val ALLOW_PINCH_FONT = booleanPreferencesKey("allow_pinch_font")
         private val ALLOW_SWIPE_FLIP = booleanPreferencesKey("allow_swipe_flip")
@@ -149,6 +155,12 @@ class ReaderPrefs @Inject constructor(
     val ttsCloudVoice: Flow<String> = context.dataStore.data.map { it[TTS_CLOUD_VOICE] ?: "zh-CN-XiaoxiaoNeural" }
     val ttsCloudRate: Flow<String> = context.dataStore.data.map { it[TTS_CLOUD_RATE] ?: "+0%" }
     val ttsCloudPitch: Flow<String> = context.dataStore.data.map { it[TTS_CLOUD_PITCH] ?: "+0Hz" }
+    val ttsEngine: Flow<String> = context.dataStore.data.map { it[TTS_ENGINE] ?: "edge" }
+    val azureApiKey: Flow<String> = context.dataStore.data.map { it[AZURE_API_KEY] ?: "" }
+    val baiduApiKey: Flow<String> = context.dataStore.data.map { it[BAIDU_API_KEY] ?: "" }
+    val baiduSecretKey: Flow<String> = context.dataStore.data.map { it[BAIDU_SECRET_KEY] ?: "" }
+    val aliApiKey: Flow<String> = context.dataStore.data.map { it[ALI_API_KEY] ?: "" }
+    val aliSecretKey: Flow<String> = context.dataStore.data.map { it[ALI_SECRET_KEY] ?: "" }
 
     // ── Write methods ──────────────────────────────────
 
@@ -215,6 +227,12 @@ class ReaderPrefs @Inject constructor(
     suspend fun saveTtsCloudVoice(v: String) { context.dataStore.edit { it[TTS_CLOUD_VOICE] = v } }
     suspend fun saveTtsCloudRate(v: String) { context.dataStore.edit { it[TTS_CLOUD_RATE] = v } }
     suspend fun saveTtsCloudPitch(v: String) { context.dataStore.edit { it[TTS_CLOUD_PITCH] = v } }
+    suspend fun saveTtsEngine(v: String) { context.dataStore.edit { it[TTS_ENGINE] = v } }
+    suspend fun saveAzureApiKey(v: String) { context.dataStore.edit { it[AZURE_API_KEY] = v } }
+    suspend fun saveBaiduApiKey(v: String) { context.dataStore.edit { it[BAIDU_API_KEY] = v } }
+    suspend fun saveBaiduSecretKey(v: String) { context.dataStore.edit { it[BAIDU_SECRET_KEY] = v } }
+    suspend fun saveAliApiKey(v: String) { context.dataStore.edit { it[ALI_API_KEY] = v } }
+    suspend fun saveAliSecretKey(v: String) { context.dataStore.edit { it[ALI_SECRET_KEY] = v } }
 
     suspend fun saveTranslateEngine(v: String) { context.dataStore.edit { it[TRANSLATE_ENGINE] = v } }
     suspend fun saveTranslateTargetLang(v: String) { context.dataStore.edit { it[TRANSLATE_TARGET_LANG] = v } }

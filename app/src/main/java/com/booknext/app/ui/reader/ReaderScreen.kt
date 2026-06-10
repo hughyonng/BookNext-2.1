@@ -59,8 +59,25 @@ fun ReaderScreen(
     val ttsCloudPitch by viewModel.ttsCloudPitch.collectAsState()
     val ttsLoading by viewModel.ttsLoading.collectAsState()
     val useLocalTts by viewModel.useLocalTts.collectAsState()
-    val ttsState = remember(ttsCloudVoice, ttsCloudRate, ttsCloudPitch, useLocalTts) {
-        TtsState(cloudVoice = ttsCloudVoice, cloudRate = ttsCloudRate, cloudPitch = ttsCloudPitch, useLocal = useLocalTts)
+    val ttsEngine by viewModel.ttsEngine.collectAsState()
+    val azureApiKey by viewModel.azureApiKey.collectAsState()
+    val baiduApiKey by viewModel.baiduApiKey.collectAsState()
+    val baiduSecretKey by viewModel.baiduSecretKey.collectAsState()
+    val aliApiKey by viewModel.aliApiKey.collectAsState()
+    val aliSecretKey by viewModel.aliSecretKey.collectAsState()
+    val ttsState = remember(ttsCloudVoice, ttsCloudRate, ttsCloudPitch, useLocalTts, ttsEngine,
+        azureApiKey, baiduApiKey, baiduSecretKey, aliApiKey, aliSecretKey) {
+        TtsState(
+            engine = ttsEngine,
+            cloudVoice = ttsCloudVoice,
+            cloudRate = ttsCloudRate,
+            cloudPitch = ttsCloudPitch,
+            azureApiKey = azureApiKey,
+            baiduApiKey = baiduApiKey,
+            baiduSecretKey = baiduSecretKey,
+            aliApiKey = aliApiKey,
+            aliSecretKey = aliSecretKey,
+        )
     }
 
     val context = LocalContext.current
@@ -161,10 +178,16 @@ fun ReaderScreen(
                     viewModel.setBgColor(if (enabled) "#1E2428" else "")
                 }
                 val onTtsStateChange: (TtsState) -> Unit = { newState ->
+                    viewModel.setTtsEngine(newState.engine)
                     viewModel.setTtsCloudVoice(newState.cloudVoice)
                     viewModel.setTtsCloudRate(newState.cloudRate)
                     viewModel.setTtsCloudPitch(newState.cloudPitch)
-                    viewModel.setUseLocalTts(newState.useLocal)
+                    viewModel.setUseLocalTts(newState.engine == "local")
+                    viewModel.setAzureApiKey(newState.azureApiKey)
+                    viewModel.setBaiduApiKey(newState.baiduApiKey)
+                    viewModel.setBaiduSecretKey(newState.baiduSecretKey)
+                    viewModel.setAliApiKey(newState.aliApiKey)
+                    viewModel.setAliSecretKey(newState.aliSecretKey)
                 }
                 val onTranslateText: () -> Unit = {
                     if (selectedText.isEmpty()) {

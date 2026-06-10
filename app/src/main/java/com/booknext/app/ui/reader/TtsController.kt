@@ -6,6 +6,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.provider.Settings
 import com.booknext.app.data.local.prefs.ReaderPrefs
+import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.data.remote.ApiClient
 import com.booknext.app.data.remote.dto.TtsRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ import javax.inject.Singleton
 class TtsController @Inject constructor(
     private val apiClient: ApiClient,
     private val readerPrefs: ReaderPrefs,
+    private val accountPrefs: AccountPrefs,
     @ApplicationContext private val context: Context,
 ) {
     private val _playing = MutableStateFlow(false)
@@ -41,6 +43,18 @@ class TtsController @Inject constructor(
     val cloudRate: StateFlow<String> = _cloudRate
     private val _cloudPitch = MutableStateFlow("+0Hz")
     val cloudPitch: StateFlow<String> = _cloudPitch
+    private val _ttsEngine = MutableStateFlow("edge")
+    val ttsEngine: StateFlow<String> = _ttsEngine
+    private val _azureKey = MutableStateFlow("")
+    val azureApiKey: StateFlow<String> = _azureKey
+    private val _baiduKey = MutableStateFlow("")
+    val baiduApiKey: StateFlow<String> = _baiduKey
+    private val _baiduSecret = MutableStateFlow("")
+    val baiduSecretKey: StateFlow<String> = _baiduSecret
+    private val _aliKey = MutableStateFlow("")
+    val aliApiKey: StateFlow<String> = _aliKey
+    private val _aliSecret = MutableStateFlow("")
+    val aliSecretKey: StateFlow<String> = _aliSecret
 
     private var cloudPlayer: MediaPlayer? = null
     private var localTts: TextToSpeech? = null
@@ -57,9 +71,16 @@ class TtsController @Inject constructor(
             _cloudVoice.value = readerPrefs.ttsCloudVoice.first()
             _cloudRate.value = readerPrefs.ttsCloudRate.first()
             _cloudPitch.value = readerPrefs.ttsCloudPitch.first()
+            _ttsEngine.value = readerPrefs.ttsEngine.first()
+            _azureKey.value = readerPrefs.azureApiKey.first()
+            _baiduKey.value = readerPrefs.baiduApiKey.first()
+            _baiduSecret.value = readerPrefs.baiduSecretKey.first()
+            _aliKey.value = readerPrefs.aliApiKey.first()
+            _aliSecret.value = readerPrefs.aliSecretKey.first()
         }
     }
 
+    fun setTtsEngine(v: String) { _ttsEngine.value = v; internalScope.launch { readerPrefs.saveTtsEngine(v) } }
     fun setCloudVoice(voice: String) {
         _cloudVoice.value = voice
         internalScope.launch { readerPrefs.saveTtsCloudVoice(voice) }
@@ -72,7 +93,15 @@ class TtsController @Inject constructor(
         _cloudPitch.value = pitch
         internalScope.launch { readerPrefs.saveTtsCloudPitch(pitch) }
     }
-    fun setUseLocalTts(v: Boolean) { _useLocalTts.value = v }
+    fun setUseLocalTts(v: Boolean) {
+        _useLocalTts.value = v
+        if (v) _ttsEngine.value = "local"
+    }
+    fun setAzureApiKey(v: String) { _azureKey.value = v; internalScope.launch { readerPrefs.saveAzureApiKey(v) } }
+    fun setBaiduApiKey(v: String) { _baiduKey.value = v; internalScope.launch { readerPrefs.saveBaiduApiKey(v) } }
+    fun setBaiduSecretKey(v: String) { _baiduSecret.value = v; internalScope.launch { readerPrefs.saveBaiduSecretKey(v) } }
+    fun setAliApiKey(v: String) { _aliKey.value = v; internalScope.launch { readerPrefs.saveAliApiKey(v) } }
+    fun setAliSecretKey(v: String) { _aliSecret.value = v; internalScope.launch { readerPrefs.saveAliSecretKey(v) } }
 
     fun setActivity(activity: android.app.Activity) {
         activityRef = WeakReference(activity)
@@ -104,7 +133,11 @@ class TtsController @Inject constructor(
     }
 
     fun start(text: String) {
-        if (_useLocalTts.value) startLocal(text) else startCloud(text)
+        if (_ttsEngine.value == "local" || _useLocalTts.value) {
+            startLocal(text)
+        } else {
+            startCloud(text, _ttsEngine.value)
+        }
     }
 
     fun stop() {
@@ -130,7 +163,7 @@ class TtsController @Inject constructor(
         cloudPlayer = null
     }
 
-    private fun startCloud(text: String) {
+    private fun startCloud(text: String, engine: String = "edge") {
         _playing.value = true
         _loading.value = true
         val gen = ++ttsGeneration
@@ -140,7 +173,14 @@ class TtsController @Inject constructor(
                 val voice = _cloudVoice.value
                 val rate = _cloudRate.value
                 val pitch = _cloudPitch.value
-                val req = TtsRequest(text = safe, voice = voice, rate = rate, pitch = pitch)
+                val (apiKey, secretKey) = when (engine) {
+                    "azure" -> _azureKey.value to ""
+                    "baidu" -> _baiduKey.value to _baiduSecret.value
+                    "ali" -> _aliKey.value to _aliSecret.value
+                    else -> "" to ""
+                }
+                val req = TtsRequest(text = safe, voice = voice, rate = rate, pitch = pitch,
+                    engine = engine, apiKey = apiKey, secretKey = secretKey)
                 val body = apiClient.api().tts(req)
                 val bytes = body.bytes()
 
