@@ -53,6 +53,7 @@ data class TransferItem(
     val status: TransferStatus = TransferStatus.RUNNING,
     val errorMessage: String? = null,
     val taskId: String? = null,       // 后端返回的上传任务 ID
+    val localPath: String? = null,     // 本地文件路径，用于复用已有文件
 )
 
 @HiltViewModel
@@ -346,7 +347,7 @@ class CloudViewModel @Inject constructor(
                         }
                     }
                     bookDao.upsert(book.copy(filePath = destFile.absolutePath, isDownloaded = true))
-                    updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS, transferredBytes = total) }
+                    updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS, transferredBytes = total, localPath = destFile.absolutePath) }
                 } catch (e: Exception) {
                     updateTransfer(transferId) { it.copy(status = TransferStatus.ERROR, errorMessage = e.message) }
                 }

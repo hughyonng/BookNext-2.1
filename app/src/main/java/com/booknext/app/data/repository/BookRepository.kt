@@ -10,7 +10,8 @@ import com.booknext.app.data.remote.MetadataService
 import com.booknext.app.data.service.BookFileService
 import com.booknext.app.data.service.CoverService
 import com.booknext.app.data.service.DownloadManager
-import com.booknext.app.data.service.DownloadStatus
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -159,16 +160,62 @@ class BookRepository @Inject constructor(
 
         val cacheFile = File(context.filesDir, "books/${bookId}.${entity.format}")
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            val status = downloadManager.getProgress(bookId)?.status
-            // DownloadManager 有记录但状态不是 DONE → 文件不完整，删掉重下
-            if (status == null || status == DownloadStatus.DONE) {
+            if (isValidFileHeader(cacheFile, entity.format)) {
                 return@withContext prepareFile(entity, cacheFile)
             }
             cacheFile.delete()
         }
 
+        // 查传输记录，看是否有已下载的文件路径
+        val transferFile = findTransferFilePath(bookId)
+        if (transferFile != null) {
+            return@withContext prepareFile(entity, transferFile)
+        }
+
         val downloaded = bookFileService.downloadBook(bookId, entity.format)
         prepareFile(entity, downloaded)
+    }
+
+    /**
+     * 查传输记录（transfer_history.json），返回匹配 bookId 的本地文件路径，
+     * 文件已不存在则返回 null。
+     */
+    private fun findTransferFilePath(bookId: String): File? {
+        return try {
+            val tf = File(context.filesDir, "transfer_history.json")
+            if (!tf.exists()) return null
+            val json = tf.readText()
+            val type = object : TypeToken<List<Map<String, Any?>>>() {}.type
+            val list: List<Map<String, Any?>> = Gson().fromJson(json, type)
+            for (entry in list) {
+                if (entry["bookId"] == bookId && entry["status"] == "SUCCESS") {
+                    val path = entry["localPath"] as? String
+                    if (path != null) {
+                        val f = File(path)
+                        if (f.exists()) return f
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) { null }
+    }
+
+    /**
+     * 校验缓存文件头部签名，判断文件是否完整。
+     * EPUB(ZIP) → PK\x03\x04，PDF → %PDF，其他格式跳过校验。
+     */
+    private fun isValidFileHeader(file: File, format: String): Boolean {
+        if (file.length() < 16) return false
+        return try {
+            val raf = java.io.RandomAccessFile(file, "r")
+            val b0 = raf.read(); val b1 = raf.read(); val b2 = raf.read(); val b3 = raf.read()
+            raf.close()
+            when (format.lowercase()) {
+                "epub" -> b0 == 0x50 && b1 == 0x4B
+                "pdf" -> b0 == '%'.code && b1 == 'P'.code && b2 == 'D'.code && b3 == 'F'.code
+                else -> true
+            }
+        } catch (_: Exception) { false }
     }
 
     suspend fun prepareFile(entity: BookEntity, file: File): PreparedBook {

@@ -500,8 +500,6 @@ fun BookshelfScreen(
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
                                                     else selectedBooks + book.bookId
-                                                } else if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) {
-                                                    android.widget.Toast.makeText(context, "正在缓存中，完成后可打开", android.widget.Toast.LENGTH_SHORT).show()
                                                 } else onBookClick(book)
                                             },
                                             onLongClick = {
@@ -513,8 +511,8 @@ fun BookshelfScreen(
                             } else {
                                 LazyVerticalGrid(
                                     columns = columns,
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
                                     verticalArrangement = Arrangement.spacedBy(18.dp),
                                 ) {
                                     itemsIndexed(displayedBooks) { _, book ->
@@ -528,8 +526,6 @@ fun BookshelfScreen(
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
                                                     else selectedBooks + book.bookId
-                                                } else if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) {
-                                                    android.widget.Toast.makeText(context, "正在缓存中，完成后可打开", android.widget.Toast.LENGTH_SHORT).show()
                                                 } else onBookClick(book)
                                             },
                                             onLongClick = {

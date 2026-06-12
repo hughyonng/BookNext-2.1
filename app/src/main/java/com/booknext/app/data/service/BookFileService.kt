@@ -1,13 +1,17 @@
 package com.booknext.app.data.service
 
 import android.content.Context
+import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.data.remote.ApiClient
 import com.booknext.app.util.TxtToEpubConverter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import org.apache.poi.xwpf.usermodel.XWPFDocument
 import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,14 +20,29 @@ class BookFileService @Inject constructor(
     private val apiClient: ApiClient,
     @ApplicationContext private val context: Context,
     private val downloadManager: DownloadManager,
+    private val accountPrefs: AccountPrefs,
 ) {
+    private val okHttp = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)
+        .build()
 
     suspend fun downloadBook(bookId: String, format: String): File = withContext(Dispatchers.IO) {
         val cacheFile = File(context.filesDir, "books/${bookId}.${format}")
         cacheFile.parentFile?.mkdirs()
-        val body = apiClient.api().streamBook(bookId)
-        val contentLength = body.contentLength()
-        val totalBytes = contentLength.coerceAtLeast(0L)
+        if (cacheFile.exists()) cacheFile.delete()
+
+        val baseUrl = accountPrefs.serverUrl.first().trimEnd('/')
+        val apiKey = accountPrefs.apiKey.first()
+        val url = "$baseUrl/api/stream/$bookId?k=$apiKey"
+        val request = okhttp3.Request.Builder().url(url)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .build()
+        val response = okHttp.newCall(request).execute()
+        if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+
+        val body = response.body ?: throw Exception("空响应")
+        val totalBytes = body.contentLength().coerceAtLeast(0L)
         downloadManager.updateProgress(bookId, 0L, totalBytes, DownloadStatus.DOWNLOADING, cacheFile.absolutePath)
         var downloaded = 0L
         cacheFile.outputStream().use { out ->
@@ -33,7 +52,6 @@ class BookFileService @Inject constructor(
                 while (input.read(buf).also { read = it } != -1) {
                     out.write(buf, 0, read)
                     downloaded += read
-                    // 每 512KB 或结束时更新进度
                     if (downloaded % (65536 * 8) == 0L || (totalBytes > 0 && downloaded >= totalBytes)) {
                         val reportTotal = if (totalBytes > 0) totalBytes else downloaded.coerceAtLeast(1L)
                         downloadManager.updateProgress(bookId, downloaded, reportTotal, DownloadStatus.DOWNLOADING, cacheFile.absolutePath)
