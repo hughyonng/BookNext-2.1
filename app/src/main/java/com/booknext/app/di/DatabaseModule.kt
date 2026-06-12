@@ -16,6 +16,7 @@ import com.booknext.app.data.repository.BookRepository
 import com.booknext.app.data.repository.ReadingSessionRepository
 import com.booknext.app.data.service.BookFileService
 import com.booknext.app.data.service.CoverService
+import com.booknext.app.data.service.DownloadManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -59,8 +60,9 @@ object DatabaseModule {
         metadataService: MetadataService,
         bookFileService: BookFileService,
         coverService: CoverService,
+        downloadManager: DownloadManager,
         @ApplicationContext ctx: Context,
-    ): BookRepository = BookRepository(bookDao, apiClient, accountPrefs, metadataService, bookFileService, coverService, ctx)
+    ): BookRepository = BookRepository(bookDao, apiClient, accountPrefs, metadataService, bookFileService, coverService, downloadManager, ctx)
 
     @Provides @Singleton
     fun provideAnnotationRepository(dao: AnnotationDao): AnnotationRepository =

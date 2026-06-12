@@ -330,6 +330,16 @@ fun BookshelfScreen(
                 },
                 actions = {
                     if (selectedBooks.isNotEmpty()) {
+                        val hasDownloadingSelected = selectedBooks.any { id -> downloads[id]?.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING }
+                        if (hasDownloadingSelected) {
+                            IconButton(onClick = {
+                                selectedBooks.forEach { viewModel.cancelDownload(it) }
+                                selectedBooks = emptySet()
+                                android.widget.Toast.makeText(context, "已取消缓存", android.widget.Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Default.Close, "取消缓存", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
                         IconButton(onClick = { selectedBooks.forEach { viewModel.toggleFavorite(it) } }) {
                             Icon(Icons.Default.Star, "收藏")
                         }
@@ -490,9 +500,13 @@ fun BookshelfScreen(
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
                                                     else selectedBooks + book.bookId
+                                                } else if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) {
+                                                    android.widget.Toast.makeText(context, "正在缓存中，完成后可打开", android.widget.Toast.LENGTH_SHORT).show()
                                                 } else onBookClick(book)
                                             },
-                                            onLongClick = { selectedBooks = selectedBooks + book.bookId },
+                                            onLongClick = {
+                                                selectedBooks = selectedBooks + book.bookId
+                                            },
                                         )
                                     }
                                 }
@@ -514,9 +528,13 @@ fun BookshelfScreen(
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
                                                     else selectedBooks + book.bookId
+                                                } else if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) {
+                                                    android.widget.Toast.makeText(context, "正在缓存中，完成后可打开", android.widget.Toast.LENGTH_SHORT).show()
                                                 } else onBookClick(book)
                                             },
-                                            onLongClick = { selectedBooks = selectedBooks + book.bookId },
+                                            onLongClick = {
+                                                selectedBooks = selectedBooks + book.bookId
+                                            },
                                         )
                                     }
                                 }

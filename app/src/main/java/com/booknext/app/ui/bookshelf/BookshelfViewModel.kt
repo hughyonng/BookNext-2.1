@@ -143,6 +143,10 @@ class BookshelfViewModel @Inject constructor(
         }
     }
 
+    fun cancelDownload(bookId: String) {
+        downloadManager.cancelDownload(bookId)
+    }
+
     // ── 上传到云盘（本地书→云端） ──
     fun uploadToCloud(bookId: String) {
         viewModelScope.launch(Dispatchers.IO) {

@@ -9,6 +9,8 @@ import com.booknext.app.data.remote.ApiClient
 import com.booknext.app.data.remote.MetadataService
 import com.booknext.app.data.service.BookFileService
 import com.booknext.app.data.service.CoverService
+import com.booknext.app.data.service.DownloadManager
+import com.booknext.app.data.service.DownloadStatus
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -42,6 +44,7 @@ class BookRepository @Inject constructor(
     private val metadataService: MetadataService,
     private val bookFileService: BookFileService,
     private val coverService: CoverService,
+    private val downloadManager: DownloadManager,
     @ApplicationContext private val context: Context,
 ) {
     // ── Observables ────────────────────────────────────
@@ -156,7 +159,12 @@ class BookRepository @Inject constructor(
 
         val cacheFile = File(context.filesDir, "books/${bookId}.${entity.format}")
         if (cacheFile.exists() && cacheFile.length() > 0) {
-            return@withContext prepareFile(entity, cacheFile)
+            val status = downloadManager.getProgress(bookId)?.status
+            // DownloadManager 有记录但状态不是 DONE → 文件不完整，删掉重下
+            if (status == null || status == DownloadStatus.DONE) {
+                return@withContext prepareFile(entity, cacheFile)
+            }
+            cacheFile.delete()
         }
 
         val downloaded = bookFileService.downloadBook(bookId, entity.format)

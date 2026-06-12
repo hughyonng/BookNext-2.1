@@ -34,6 +34,7 @@ class DownloadManager @Inject constructor(
 
     private val progressFile = File(context.filesDir, "download_progress.json")
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val jobMap = mutableMapOf<String, Job>()
 
     init {
         restoreProgress()
@@ -91,7 +92,7 @@ class DownloadManager @Inject constructor(
             put(bookId, DownloadProgress(bookId, 0L, 0L, DownloadStatus.DOWNLOADING, destFile.absolutePath))
         }
 
-        scope.launch {
+        val job = scope.launch {
             try {
                 val body = apiClient.api().streamBook(bookId)
                 val totalBytes = body.contentLength().coerceAtLeast(0L)
@@ -104,6 +105,7 @@ class DownloadManager @Inject constructor(
                         val buf = ByteArray(65536)
                         var read: Int
                         while (input.read(buf).also { read = it } != -1) {
+                            yield()
                             out.write(buf, 0, read)
                             downloaded += read
                             if (downloaded % (65536 * 8) == 0L) {
@@ -125,15 +127,21 @@ class DownloadManager @Inject constructor(
                 }
                 bookDao.markDownloaded(bookId, destFile.absolutePath)
                 persistProgress()
+            } catch (e: CancellationException) {
+                // 主动取消，删文件并从 map 移除
+                if (destFile.exists()) destFile.delete()
+                _downloads.value = _downloads.value.toMutableMap().apply { remove(bookId) }
             } catch (e: Exception) {
                 _downloads.value = _downloads.value.toMutableMap().apply {
                     put(bookId, DownloadProgress(bookId, 0L, 0L, DownloadStatus.ERROR, destFile.absolutePath))
                 }
                 android.util.Log.w("DownloadManager", "下载失败: ${e.message}")
-                // 删除无效文件
                 if (destFile.exists()) destFile.delete()
+            } finally {
+                jobMap.remove(bookId)
             }
         }
+        jobMap[bookId] = job
     }
 
     // 检查某本书是否正在下载
@@ -141,12 +149,14 @@ class DownloadManager @Inject constructor(
         _downloads.value[bookId]?.status == DownloadStatus.DOWNLOADING
 
     fun cancelDownload(bookId: String) {
-        // 标记为 PAUSED，下次点继续
-        val current = _downloads.value[bookId] ?: return
-        _downloads.value = _downloads.value.toMutableMap().apply {
-            put(bookId, current.copy(status = DownloadStatus.PAUSED))
+        jobMap[bookId]?.cancel()
+        jobMap.remove(bookId)
+        val current = _downloads.value[bookId]
+        val filePath = current?.filePath
+        _downloads.value = _downloads.value.toMutableMap().apply { remove(bookId) }
+        if (filePath != null) {
+            try { File(filePath).delete() } catch (_: Exception) {}
         }
-        persistProgress()
     }
 
     fun getProgress(bookId: String): DownloadProgress? = _downloads.value[bookId]
