@@ -35,6 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.booknext.app.ui.cloud.CloudTransferPage
+import com.booknext.app.ui.cloud.CloudViewModel
+import com.booknext.app.ui.cloud.TransferItem
+import com.booknext.app.ui.cloud.TransferStatus
 import com.booknext.app.data.local.db.BookEntity
 import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.ui.local.LocalViewModel
@@ -55,83 +59,9 @@ interface AccountPrefsEntryPoint {
 
 // ── Book components ──────────────────────────────────────
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun BookCard(
-    book: BookEntity,
-    baseUrl: String,
-    apiKey: String,
-    isSelected: Boolean = false,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit = {},
-    compact: Boolean = false,
-) {
-    Column(
-        modifier = (if (compact) Modifier.width(72.dp) else Modifier.fillMaxWidth()).combinedClickable(
-            onClick = onClick, onLongClick = onLongClick),
-        horizontalAlignment = Alignment.Start,
-    ) {
-        Box {
-            val cardSizeMod = if (compact) Modifier.size(width = 72.dp, height = 98.dp)
-                else Modifier.fillMaxWidth().aspectRatio(0.68f)
-            Card(
-                modifier = cardSizeMod,
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (isSelected) 10.dp else 5.dp
-                ),
-                shape = RoundedCornerShape(10.dp),
-                border = if (isSelected)
-                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                else null,
-            ) {
-                if (book.coverPath != null) {
-                    AsyncImage(
-                        model = File(book.coverPath), contentDescription = book.title,
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                    )
-                } else if (book.hasCover) {
-                    AsyncImage(
-                        model = "$baseUrl/api/cover/${book.bookId}?k=$apiKey", contentDescription = book.title,
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    BookSpinePlaceholder(book = book, compact = compact)
-                }
-            }
-
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(20.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
-                }
-            }
-            // 书籍来源标记
-            if (book.bookId.startsWith("local_")) {
-                Box(
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(18.dp)
-                        .background(Color(0xFF5C6BC0), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Description, null, tint = Color.White, modifier = Modifier.size(11.dp)) }
-            } else if (book.filePath == null) {
-                Box(
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp).size(18.dp)
-                        .background(Color(0xFF78909C), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Cloud, null, tint = Color.White, modifier = Modifier.size(11.dp)) }
-            }
-        }
-        Spacer(Modifier.height(5.dp))
-    }
-}
 
 @Composable
-private fun BookSpinePlaceholder(book: BookEntity, compact: Boolean) {
+fun BookSpinePlaceholder(book: BookEntity, compact: Boolean) {
     val baseColor = when (book.format.lowercase()) {
         "epub" -> Color(0xFF1565C0); "pdf" -> Color(0xFFC62828)
         "txt" -> Color(0xFF2E7D32); "mobi", "azw3" -> Color(0xFF6A1B9A)
@@ -175,6 +105,8 @@ fun ListBookRow(
     isSelected: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
+    downloadProgress: Int = -1,
+    downloadStatus: com.booknext.app.data.service.DownloadStatus? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -231,7 +163,13 @@ fun ListBookRow(
                 Text(author, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (book.readingPercent > 0f) {
+            if (downloadProgress in 0..99) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LinearProgressIndicator(progress = { downloadProgress / 100f },
+                        modifier = Modifier.height(3.dp).width(60.dp))
+                    Text("${downloadProgress}%", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            } else if (book.readingPercent > 0f) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     LinearProgressIndicator(progress = { book.readingPercent },
                         modifier = Modifier.height(3.dp).width(60.dp))
@@ -246,14 +184,14 @@ fun ListBookRow(
     }
 }
 
-private fun formatSize(bytes: Long): String = when {
+fun formatSize(bytes: Long): String = when {
     bytes > 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
     bytes > 1024 -> "%.0f KB".format(bytes / 1024.0)
     else -> "$bytes B"
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+fun InfoRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text("$label：", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, maxLines = 1)
@@ -282,6 +220,7 @@ fun BookshelfScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val metadataState by viewModel.metadataState.collectAsState()
     val selectedFolder by viewModel.selectedFolder.collectAsState()
+    val downloads by viewModel.downloads.collectAsState()
 
     val context = LocalContext.current
     val accountPrefs = remember {
@@ -307,6 +246,9 @@ fun BookshelfScreen(
 
     var coverTargetBookId by remember { mutableStateOf<String?>(null) }
     var showCoverPickerDialog by remember { mutableStateOf(false) }
+    val cloudViewModel: CloudViewModel = hiltViewModel()
+    val cloudTransfers by cloudViewModel.transfers.collectAsState()
+    var showTransferSheet by remember { mutableStateOf(false) }
     val coverPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -394,6 +336,29 @@ fun BookshelfScreen(
                         IconButton(onClick = { showFolderSheet = true }) {
                             Icon(Icons.Default.FolderOpen, "添加到分组")
                         }
+                        // 上传到云盘（仅本地书籍）
+                        val hasLocalSelected = selectedBooks.any { it.startsWith("local_") }
+                        val hasCloudSelected = selectedBooks.any { id -> displayedBooks.find { it.bookId == id }?.filePath == null }
+                        if (hasLocalSelected) {
+                            IconButton(onClick = {
+                                selectedBooks.filter { it.startsWith("local_") }.forEach { viewModel.uploadToCloud(it) }
+                                selectedBooks = emptySet()
+                            }) {
+                                Icon(Icons.Default.Upload, "上传到云盘")
+                            }
+                        }
+                        if (hasCloudSelected) {
+                            IconButton(onClick = {
+                                val cloudBooks = selectedBooks.mapNotNull { id -> displayedBooks.find { it.bookId == id }?.takeIf { it.filePath == null } }
+                                if (cloudBooks.isNotEmpty()) {
+                                    cloudViewModel.downloadBooks(context, cloudBooks, baseUrl, apiKey)
+                                    android.widget.Toast.makeText(context, "已加入传输队列 (${cloudBooks.size} 项)", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                selectedBooks = emptySet()
+                            }) {
+                                Icon(Icons.Default.Download, "下载到本地")
+                            }
+                        }
                         IconButton(onClick = { showDeleteConfirm = true }) {
                             Icon(Icons.Default.Delete, "删除", tint = MaterialTheme.colorScheme.error)
                         }
@@ -420,6 +385,14 @@ fun BookshelfScreen(
                         }
                         IconButton(onClick = onUploadClick) { Icon(Icons.Default.Add, "上传书籍") }
                         if (isLoggedIn) {
+                        IconButton(onClick = { showTransferSheet = true }) {
+                            Box {
+                                Icon(Icons.Default.Sync, "传输记录")
+                                if (cloudTransfers.any { it.status == TransferStatus.RUNNING }) {
+                                    Badge(modifier = Modifier.align(Alignment.TopEnd).size(8.dp))
+                                }
+                            }
+                        }
                         IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "更多") }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(text = { Text("排序方式") },
@@ -508,8 +481,11 @@ fun BookshelfScreen(
                                 ) {
                                     itemsIndexed(displayedBooks) { _, book ->
                                         val isSelected = selectedBooks.contains(book.bookId)
+                                        val dl = downloads[book.bookId]
                                         ListBookRow(book = book, baseUrl = baseUrl, apiKey = apiKey,
                                             isSelected = isSelected,
+                                            downloadProgress = if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) (dl.downloadedBytes * 100 / (dl.totalBytes.coerceAtLeast(1L))).toInt().coerceIn(0, 99) else -1,
+                                            downloadStatus = dl?.status,
                                             onClick = {
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
@@ -529,8 +505,11 @@ fun BookshelfScreen(
                                 ) {
                                     itemsIndexed(displayedBooks) { _, book ->
                                         val isSelected = selectedBooks.contains(book.bookId)
+                                        val dl = downloads[book.bookId]
                                         BookCard(book = book, baseUrl = baseUrl, apiKey = apiKey,
                                             isSelected = isSelected,
+                                            downloadProgress = if (dl != null && dl.status == com.booknext.app.data.service.DownloadStatus.DOWNLOADING) (dl.downloadedBytes * 100 / (dl.totalBytes.coerceAtLeast(1L))).toInt().coerceIn(0, 99) else -1,
+                                            downloadStatus = dl?.status,
                                             onClick = {
                                                 if (selectedBooks.isNotEmpty()) {
                                                     selectedBooks = if (isSelected) selectedBooks - book.bookId
@@ -767,5 +746,28 @@ fun BookshelfScreen(
                 }
             },
         )
+    }
+
+    // ── 传输记录面板 ──
+    if (showTransferSheet) {
+        CloudTransferPage(
+            transfers = cloudTransfers,
+            onBack = { showTransferSheet = false },
+            onClearCompleted = { cloudViewModel.clearCompletedTransfers() },
+            onOpenBook = { bookId -> onBookClick(displayedBooks.find { it.bookId == bookId } ?: return@CloudTransferPage) },
+            onRetry = { item ->
+                when (item.type) {
+                    com.booknext.app.ui.cloud.TransferType.DOWNLOAD -> {
+                        if (item.bookId != null) {
+                            cloudViewModel.downloadBooks(context, listOf(displayedBooks.find { it.bookId == item.bookId } ?: return@CloudTransferPage), baseUrl, apiKey)
+                        }
+                    }
+                    else -> {}
+                }
+            },
+            onDelete = { id -> cloudViewModel.deleteTransfer(id) },
+            onCancel = { bookId, _ -> cloudViewModel.cancelDownload(bookId) },
+        )
+        return
     }
 }

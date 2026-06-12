@@ -65,7 +65,17 @@ fun PdfReaderScreen(
     var uiVisible by remember { mutableStateOf(true) }
 
     val renderer = remember(file) {
-        PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
+        try {
+            PdfRenderer(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
+        } catch (e: Exception) {
+            null
+        }
+    }
+    if (renderer == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("PDF 文件加载失败，可能尚未上传完成。请稍后重试。", color = MaterialTheme.colorScheme.error)
+        }
+        return
     }
     var pageBitmaps = remember { mutableStateListOf<Bitmap?>() }
     val scope = rememberCoroutineScope()

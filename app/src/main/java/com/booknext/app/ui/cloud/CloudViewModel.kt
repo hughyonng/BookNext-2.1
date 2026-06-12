@@ -8,6 +8,7 @@ import com.booknext.app.data.local.db.BookDao
 import com.booknext.app.data.local.db.BookEntity
 import com.booknext.app.data.remote.ApiClient
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -51,12 +52,14 @@ data class TransferItem(
     val transferredBytes: Long = 0L,
     val status: TransferStatus = TransferStatus.RUNNING,
     val errorMessage: String? = null,
+    val taskId: String? = null,       // 后端返回的上传任务 ID
 )
 
 @HiltViewModel
 class CloudViewModel @Inject constructor(
     private val bookDao: BookDao,
     private val apiClient: ApiClient,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<CloudUiState>(CloudUiState.Loading)
@@ -64,6 +67,32 @@ class CloudViewModel @Inject constructor(
 
     private val _transfers = MutableStateFlow<List<TransferItem>>(emptyList())
     val transfers: StateFlow<List<TransferItem>> = _transfers
+
+    // 传输记录持久化
+    private val transferFile = File(context.filesDir, "transfer_history.json")
+
+    init {
+        restoreTransfers()
+    }
+
+    private fun restoreTransfers() {
+        try {
+            if (transferFile.exists()) {
+                val json = transferFile.readText()
+                val type = com.google.gson.reflect.TypeToken.getParameterized(List::class.java, TransferItem::class.java).type
+                val saved: List<TransferItem> = com.google.gson.Gson().fromJson(json, type)
+                if (saved.isNotEmpty()) {
+                    _transfers.value = saved
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun persistTransfers() {
+        try {
+            transferFile.writeText(com.google.gson.Gson().toJson(_transfers.value))
+        } catch (_: Exception) {}
+    }
 
     init {
         // 不自动加载,由 CloudScreen 控制——登录后才触发 load()
@@ -100,7 +129,15 @@ class CloudViewModel @Inject constructor(
                             pageCount = dto.pageCount,
                         )
                     }
-                    bookDao.upsertAll(entities)
+                    // 保留本地已有的 filePath/isDownloaded，不被云端空值覆盖
+                    val localMap = bookDao.observeAll().first().associateBy { it.bookId }
+                    val merged = entities.map { entity ->
+                        val old = localMap[entity.bookId]
+                        if (old != null && old.filePath != null) {
+                            entity.copy(filePath = old.filePath, isDownloaded = old.isDownloaded)
+                        } else entity
+                    }
+                    bookDao.upsertAll(merged)
 
                     val grouped = entities
                         .filter { it.category != "__ocr__" }
@@ -138,7 +175,7 @@ class CloudViewModel @Inject constructor(
         }
     }
 
-    fun uploadFile(context: Context, uri: Uri) {
+    fun uploadFile(context: Context, uri: Uri, baseUrl: String = "", apiKey: String = "") {
         val fileName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
             cursor.moveToFirst()
@@ -146,10 +183,34 @@ class CloudViewModel @Inject constructor(
         } ?: "未知文件"
 
         val transferId = UUID.randomUUID().toString()
-        addTransfer(TransferItem(id = transferId, fileName = fileName, type = TransferType.UPLOAD, sourceUri = uri.toString()))
+        val optimisticBookId = UUID.randomUUID().toString()
+        val title = fileName.substringBeforeLast('.')
+        val format = fileName.substringAfterLast('.', "bin").lowercase()
+
+        // 乐观写入：立即在 Room 插入一条"上传中"的书记录
+        viewModelScope.launch(Dispatchers.IO) {
+            bookDao.upsert(
+                BookEntity(
+                    bookId = optimisticBookId,
+                    title = title,
+                    author = "未知",
+                    format = format,
+                    status = "uploading",
+                    uploadTime = System.currentTimeMillis(),
+                )
+            )
+        }
+
+        addTransfer(TransferItem(
+            id = transferId,
+            fileName = fileName,
+            type = TransferType.UPLOAD,
+            bookId = optimisticBookId,
+            sourceUri = uri.toString(),
+        ))
 
         viewModelScope.launch(Dispatchers.IO) {
-            val ext = fileName.substringAfterLast('.', "bin")
+            val ext = format
             val tmpFile = File(context.cacheDir, "${UUID.randomUUID()}.$ext")
             try {
                 context.contentResolver.openInputStream(uri)?.use { input ->
@@ -159,20 +220,75 @@ class CloudViewModel @Inject constructor(
                 updateTransfer(transferId) { it.copy(totalBytes = totalBytes) }
 
                 val originalBody = tmpFile.asRequestBody("application/octet-stream".toMediaType())
-                // 带进度的 RequestBody
                 val progressBody = ProgressRequestBody(originalBody, totalBytes) { transferred ->
                     updateTransfer(transferId) { it.copy(transferredBytes = transferred) }
                 }
                 val filePart = MultipartBody.Part.createFormData("file", tmpFile.name, progressBody)
-                val title = fileName.substringBeforeLast('.').toRequestBody("text/plain".toMediaType())
-                val author = "未知".toRequestBody("text/plain".toMediaType())
-                val ocr = "false".toRequestBody("text/plain".toMediaType())
+                val titleBody = title.toRequestBody("text/plain".toMediaType())
+                val authorBody = "未知".toRequestBody("text/plain".toMediaType())
+                val ocrBody = "false".toRequestBody("text/plain".toMediaType())
 
-                val response = apiClient.api().uploadBook(filePart, title, author, ocr)
-                updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS, transferredBytes = totalBytes, bookId = response.bookId) }
-                delay(1500)
-                load()
+                val response = apiClient.api().uploadBook(filePart, titleBody, authorBody, ocrBody)
+                val realBookId = response.bookId
+                val taskId = response.taskId
+
+                // 用真实 bookId 替换乐观记录（删旧插新）
+                bookDao.deleteById(optimisticBookId)
+                bookDao.upsert(
+                    BookEntity(
+                        bookId = realBookId,
+                        title = title,
+                        author = "未知",
+                        format = format,
+                        status = "uploading",
+                        uploadTime = System.currentTimeMillis(),
+                    )
+                )
+                updateTransfer(transferId) { it.copy(bookId = realBookId, taskId = taskId, transferredBytes = totalBytes) }
+
+                // 如果没有 taskId（老后端兼容），直接标成功
+                if (taskId == null) {
+                    bookDao.getById(realBookId)?.let {
+                        bookDao.upsert(it.copy(status = "ready"))
+                    }
+                    updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS) }
+                    delay(1500)
+                    load()
+                    return@launch
+                }
+
+                // 轮询任务状态，最多等 5 分钟（3次 × 10秒，指数退避）
+                var pollDelay = 3000L
+                repeat(6) { attempt ->
+                    delay(pollDelay)
+                    pollDelay = (pollDelay * 1.5).toLong().coerceAtMost(15000L)
+                    try {
+                        val statusResp = apiClient.api().getUploadStatus(taskId)
+                        when (statusResp.status) {
+                            "done" -> {
+                                bookDao.getById(realBookId)?.let {
+                                    bookDao.upsert(it.copy(status = "ready"))
+                                }
+                                updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS) }
+                                delay(1500)
+                                load()
+                                return@launch
+                            }
+                            "error" -> {
+                                bookDao.deleteById(realBookId)
+                                updateTransfer(transferId) { it.copy(status = TransferStatus.ERROR, errorMessage = statusResp.message) }
+                                return@launch
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("CloudViewModel", "轮询失败 attempt=$attempt: ${e.message}")
+                    }
+                }
+
+                updateTransfer(transferId) { it.copy(status = TransferStatus.ERROR, errorMessage = "上传超时，请刷新书架确认") }
+
             } catch (e: Exception) {
+                bookDao.deleteById(optimisticBookId)
                 updateTransfer(transferId) { it.copy(status = TransferStatus.ERROR, errorMessage = e.message) }
             } finally {
                 tmpFile.delete()
@@ -185,7 +301,7 @@ class CloudViewModel @Inject constructor(
         localDir.mkdirs()
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)  // 不设超时，用户可长按取消
             .build()
 
         books.forEach { book ->
@@ -199,10 +315,9 @@ class CloudViewModel @Inject constructor(
                 try {
                     val url = "${baseUrl}/api/stream/${book.bookId}?k=$apiKey"
                     val destFile = File(localDir, fileName)
-                    if (destFile.exists()) {
-                        updateTransfer(transferId) { it.copy(status = TransferStatus.SUCCESS, transferredBytes = book.fileSize) }
-                        return@launch
-                    }
+                    // 不论是否存在，每次都重新下载（防止上次下载不完整）
+                    if (destFile.exists()) destFile.delete()
+                    destFile.parentFile?.mkdirs()
                     val request = okhttp3.Request.Builder().url(url)
                         .addHeader("Authorization", "Bearer $apiKey")
                         .build()
@@ -261,6 +376,22 @@ class CloudViewModel @Inject constructor(
 
     fun clearCompletedTransfers() {
         _transfers.value = _transfers.value.filter { it.status == TransferStatus.RUNNING }
+        persistTransfers()
+    }
+
+    fun deleteTransfer(id: String) {
+        _transfers.value = _transfers.value.filter { it.id != id }
+        persistTransfers()
+    }
+
+    fun cancelDownload(bookId: String) {
+        // 标记对应的 DOWNLOADING 任务为 ERROR
+        _transfers.value = _transfers.value.map { t ->
+            if (t.bookId == bookId && t.status == TransferStatus.RUNNING && t.type == TransferType.DOWNLOAD) {
+                t.copy(status = TransferStatus.ERROR, errorMessage = "已取消")
+            } else t
+        }
+        persistTransfers()
     }
 
     fun retryTransfer(context: Context, item: TransferItem, baseUrl: String, apiKey: String) {
@@ -283,10 +414,12 @@ class CloudViewModel @Inject constructor(
 
     private fun addTransfer(item: TransferItem) {
         _transfers.value = listOf(item) + _transfers.value
+        persistTransfers()
     }
 
     private fun updateTransfer(id: String, block: (TransferItem) -> TransferItem) {
         _transfers.value = _transfers.value.map { if (it.id == id) block(it) else it }
+        persistTransfers()
     }
 }
 

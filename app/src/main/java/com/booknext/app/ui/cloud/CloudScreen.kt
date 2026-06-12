@@ -289,6 +289,8 @@ fun CloudScreen(
             onClearCompleted = { viewModel.clearCompletedTransfers() },
             onOpenBook = { bookId -> onBookClick(bookId) },
             onRetry = { item -> viewModel.retryTransfer(context, item, baseUrl, apiKey) },
+            onDelete = { id -> viewModel.deleteTransfer(id) },
+            onCancel = { bookId, _ -> viewModel.cancelDownload(bookId) },
         )
         return
     }
@@ -367,12 +369,14 @@ fun CloudScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CloudTransferPage(
+fun CloudTransferPage(
     transfers: List<TransferItem>,
     onBack: () -> Unit,
     onClearCompleted: () -> Unit,
     onOpenBook: (String) -> Unit,
     onRetry: (TransferItem) -> Unit,
+    onDelete: (String) -> Unit = {},
+    onCancel: (String, String) -> Unit = { _, _ -> },  // bookId, format
 ) {
     val running = transfers.filter { it.status == TransferStatus.RUNNING }
     val completed = transfers.filter { it.status != TransferStatus.RUNNING }
@@ -417,7 +421,12 @@ private fun CloudTransferPage(
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
                 }
                 items(running, key = { it.id }) { t ->
-                    TransferItemCard(t = t, onClick = null, onRetry = null)
+                    TransferItemCard(
+                        t = t, onClick = null, onRetry = null,
+                        onCancel = if (t.type == com.booknext.app.ui.cloud.TransferType.DOWNLOAD) {
+                            { onCancel(t.bookId ?: "", "") }
+                        } else null,
+                    )
                 }
             }
 
@@ -436,6 +445,9 @@ private fun CloudTransferPage(
                         onRetry = if (t.status == TransferStatus.ERROR) {
                             { onRetry(t) }
                         } else null,
+                        onDelete = if (t.status != TransferStatus.RUNNING) {
+                            { onDelete(t.id) }
+                        } else null,
                     )
                 }
             }
@@ -450,6 +462,8 @@ private fun TransferItemCard(
     t: TransferItem,
     onClick: (() -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null,
+    onCancel: (() -> Unit)? = null,
 ) {
     val progress = if (t.totalBytes > 0) (t.transferredBytes.toFloat() / t.totalBytes).coerceIn(0f, 1f) else 0f
     Card(
@@ -508,7 +522,11 @@ private fun TransferItemCard(
             }
             // 右侧操作按钮
             if (t.status == TransferStatus.RUNNING) {
-                if (t.transferredBytes > 0) {
+                if (onCancel != null) {
+                    IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, "取消", tint = MaterialTheme.colorScheme.error)
+                    }
+                } else if (t.transferredBytes > 0) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, progress = { progress })
                 } else {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -520,6 +538,12 @@ private fun TransferItemCard(
             } else if (t.status == TransferStatus.SUCCESS && onClick != null) {
                 IconButton(onClick = onClick, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            // 删除按钮（已完成/失败的记录）
+            if (onDelete != null) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, "删除记录", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -609,8 +633,12 @@ private fun CloudBookList(
                     }
                     Column(Modifier.weight(1f)) {
                         Text(book.title, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
-                        Text(book.format.uppercase() + " · " + formatSize(book.fileSize),
-                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (book.status == "uploading") {
+                            Text("上传中…", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        } else {
+                            Text(book.format.uppercase() + " · " + formatSize(book.fileSize),
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     if (isSelected) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }

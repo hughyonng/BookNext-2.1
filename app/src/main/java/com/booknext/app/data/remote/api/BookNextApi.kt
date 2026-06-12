@@ -47,6 +47,9 @@ interface BookNextApi {
         @Part("run_ocr") runOcr: RequestBody,
     ): UploadResponse
 
+    @GET("api/upload/status/{taskId}")
+    suspend fun getUploadStatus(@Path("taskId") taskId: String): UploadStatusResponse
+
     @DELETE("api/books/{id}")
     suspend fun deleteBook(@Path("id") id: String): Response<Unit>
 

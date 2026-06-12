@@ -163,7 +163,7 @@ class BookRepository @Inject constructor(
         prepareFile(entity, downloaded)
     }
 
-    private suspend fun prepareFile(entity: BookEntity, file: File): PreparedBook {
+    suspend fun prepareFile(entity: BookEntity, file: File): PreparedBook {
         bookDao.updateLastReadAt(entity.bookId, System.currentTimeMillis())
         val format = resolveFormat(entity, file) ?: return PreparedBook(entity, file, entity.format)
         return PreparedBook(entity, format.first, format.second)

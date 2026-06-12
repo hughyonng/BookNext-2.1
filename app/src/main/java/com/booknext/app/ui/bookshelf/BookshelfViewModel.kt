@@ -3,19 +3,31 @@ package com.booknext.app.ui.bookshelf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.booknext.app.data.local.db.BookEntity
+import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.data.local.prefs.UiPrefs
+import com.booknext.app.data.remote.ApiClient
 import com.booknext.app.data.repository.BookRepository
 import com.booknext.app.data.repository.SyncResult
+import com.booknext.app.data.service.DownloadManager
+import com.booknext.app.data.service.DownloadProgress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 
 @HiltViewModel
 class BookshelfViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val uiPrefs: UiPrefs,
+    private val apiClient: ApiClient,
+    private val accountPrefs: AccountPrefs,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     val books: StateFlow<List<BookEntity>> = bookRepository.observeAll()
@@ -58,6 +70,9 @@ class BookshelfViewModel @Inject constructor(
 
     val recentBooks: StateFlow<List<BookEntity>> = bookRepository.observeRecentlyRead()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // 暴露下载进度供书架 BookCard 订阅
+    val downloads: StateFlow<Map<String, DownloadProgress>> = downloadManager.downloads
 
     init {
         syncBooks()
@@ -125,6 +140,61 @@ class BookshelfViewModel @Inject constructor(
     fun extractCoverFromFile(bookId: String, filePath: String, format: String) {
         viewModelScope.launch {
             bookRepository.extractCoverFromFile(bookId, filePath, format)
+        }
+    }
+
+    // ── 上传到云盘（本地书→云端） ──
+    fun uploadToCloud(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val entity = bookRepository.getById(bookId) ?: return@launch
+                val file = java.io.File(entity.filePath ?: return@launch)
+                if (!file.exists()) return@launch
+
+                val body = file.asRequestBody("application/octet-stream".toMediaType())
+                val filePart = MultipartBody.Part.createFormData("file", file.name, body)
+                val titleBody = entity.title.toRequestBody("text/plain".toMediaType())
+                val authorBody = entity.author.ifEmpty { "未知" }.toRequestBody("text/plain".toMediaType())
+                val ocrBody = "false".toRequestBody("text/plain".toMediaType())
+
+                apiClient.api().uploadBook(filePart, titleBody, authorBody, ocrBody)
+            } catch (e: Exception) {
+                android.util.Log.w("BookshelfVM", "上传失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── 下载到本地（云端书→本地） ──
+    fun downloadToLocal(bookId: String, context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val entity = bookRepository.getById(bookId) ?: return@launch
+                val baseUrl = accountPrefs.serverUrl.first().trimEnd('/')
+                val apiKey = accountPrefs.apiKey.first()
+                if (baseUrl.isBlank() || apiKey.isBlank()) return@launch
+
+                val safeName = entity.title.replace(Regex("[/\\\\:*?\"<>|]"), "_")
+                val localDir = java.io.File(context.filesDir, "local_books")
+                localDir.mkdirs()
+                val destFile = java.io.File(localDir, "$safeName.${entity.format}")
+
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                val request = okhttp3.Request.Builder()
+                    .url("$baseUrl/api/stream/$bookId?k=$apiKey")
+                    .addHeader("Authorization", "Bearer $apiKey").build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) return@launch
+
+                response.body?.byteStream()?.use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                }
+                bookRepository.upsert(entity.copy(filePath = destFile.absolutePath, isDownloaded = true))
+            } catch (e: Exception) {
+                android.util.Log.w("BookshelfVM", "下载失败: ${e.message}")
+            }
         }
     }
 }

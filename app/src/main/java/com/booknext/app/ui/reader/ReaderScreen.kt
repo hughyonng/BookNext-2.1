@@ -155,7 +155,7 @@ fun ReaderScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
                         if (s is ReaderState.Downloading) {
-                            Text("正在下载书籍…", style = MaterialTheme.typography.bodySmall)
+                            Text("正在缓存书籍…", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

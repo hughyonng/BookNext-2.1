@@ -33,4 +33,13 @@ data class UploadResponse(
     val title: String,
     val message: String,
     val duplicate: Boolean = false,
+    @SerializedName("task_id") val taskId: String? = null,
+)
+
+data class UploadStatusResponse(
+    @SerializedName("task_id") val taskId: String,
+    @SerializedName("book_id") val bookId: String,
+    val title: String,
+    val status: String,   // "pending" | "processing" | "done" | "error"
+    val message: String,
 )

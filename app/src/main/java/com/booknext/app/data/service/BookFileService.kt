@@ -15,13 +15,33 @@ import javax.inject.Singleton
 class BookFileService @Inject constructor(
     private val apiClient: ApiClient,
     @ApplicationContext private val context: Context,
+    private val downloadManager: DownloadManager,
 ) {
 
     suspend fun downloadBook(bookId: String, format: String): File = withContext(Dispatchers.IO) {
         val cacheFile = File(context.filesDir, "books/${bookId}.${format}")
         cacheFile.parentFile?.mkdirs()
         val body = apiClient.api().streamBook(bookId)
-        cacheFile.outputStream().use { out -> body.byteStream().copyTo(out) }
+        val contentLength = body.contentLength()
+        val totalBytes = contentLength.coerceAtLeast(0L)
+        downloadManager.updateProgress(bookId, 0L, totalBytes, DownloadStatus.DOWNLOADING, cacheFile.absolutePath)
+        var downloaded = 0L
+        cacheFile.outputStream().use { out ->
+            body.byteStream().use { input ->
+                val buf = ByteArray(65536)
+                var read: Int
+                while (input.read(buf).also { read = it } != -1) {
+                    out.write(buf, 0, read)
+                    downloaded += read
+                    // 每 512KB 或结束时更新进度
+                    if (downloaded % (65536 * 8) == 0L || (totalBytes > 0 && downloaded >= totalBytes)) {
+                        val reportTotal = if (totalBytes > 0) totalBytes else downloaded.coerceAtLeast(1L)
+                        downloadManager.updateProgress(bookId, downloaded, reportTotal, DownloadStatus.DOWNLOADING, cacheFile.absolutePath)
+                    }
+                }
+            }
+        }
+        downloadManager.updateProgress(bookId, downloaded, downloaded.coerceAtLeast(1L), DownloadStatus.DONE, cacheFile.absolutePath)
         cacheFile
     }
 
