@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.booknext.app.data.local.db.BookDao
 import com.booknext.app.data.local.db.BookEntity
+import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.data.remote.ApiClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -60,6 +61,7 @@ data class TransferItem(
 class CloudViewModel @Inject constructor(
     private val bookDao: BookDao,
     private val apiClient: ApiClient,
+    private val accountPrefs: AccountPrefs,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -229,7 +231,10 @@ class CloudViewModel @Inject constructor(
                 val authorBody = "未知".toRequestBody("text/plain".toMediaType())
                 val ocrBody = "false".toRequestBody("text/plain".toMediaType())
 
-                val response = apiClient.api().uploadBook(filePart, titleBody, authorBody, ocrBody)
+                val directUrl = accountPrefs.directUploadUrl.first()
+                    .ifBlank { accountPrefs.serverUrl.first().trimEnd('/') }
+                android.util.Log.d("Upload", "upload to: $directUrl/api/upload")
+                val response = apiClient.api().uploadBook("$directUrl/api/upload", filePart, titleBody, authorBody, ocrBody)
                 val realBookId = response.bookId
                 val taskId = response.taskId
 

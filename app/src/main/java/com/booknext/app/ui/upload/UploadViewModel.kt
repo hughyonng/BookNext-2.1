@@ -5,11 +5,13 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.booknext.app.data.local.prefs.AccountPrefs
 import com.booknext.app.data.remote.ApiClient
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -31,6 +33,7 @@ data class UploadState(
 @HiltViewModel
 class UploadViewModel @Inject constructor(
     private val apiClient: ApiClient,
+    private val accountPrefs: AccountPrefs,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(UploadState())
@@ -75,7 +78,10 @@ class UploadViewModel @Inject constructor(
                 val authorBody = (_state.value.author.ifEmpty { "未知" }).toRequestBody("text/plain".toMediaType())
                 val ocrBody = "false".toRequestBody("text/plain".toMediaType())
 
-                apiClient.api().uploadBook(filePart, titleBody, authorBody, ocrBody)
+                val directUrl = accountPrefs.directUploadUrl.first()
+                    .ifBlank { accountPrefs.serverUrl.first().trimEnd('/') }
+                android.util.Log.d("Upload", "upload to: $directUrl/api/upload")
+                apiClient.api().uploadBook("$directUrl/api/upload", filePart, titleBody, authorBody, ocrBody)
                 _state.value = _state.value.copy(uploading = false, success = true)
                 delay(1500)
                 onSuccess()

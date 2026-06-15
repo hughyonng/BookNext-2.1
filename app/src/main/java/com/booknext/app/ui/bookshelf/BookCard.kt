@@ -47,7 +47,7 @@ fun BookCard(
             Card(
                 modifier = cardSizeMod,
                 elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 10.dp else 5.dp),
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(0.dp),
                 border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
             ) {
                 if (book.coverPath != null) {
@@ -66,7 +66,7 @@ fun BookCard(
             if (downloadStatus == DownloadStatus.DOWNLOADING && downloadProgress in 0..99) {
                 Box(
                     modifier = cardSizeMod
-                        .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(10.dp)),
+                        .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(0.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

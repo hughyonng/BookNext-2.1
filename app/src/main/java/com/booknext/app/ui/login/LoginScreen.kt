@@ -2,6 +2,7 @@ package com.booknext.app.ui.login
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -19,6 +20,8 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val loginHistory by viewModel.loginHistory.collectAsState()
+    var urlExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -45,7 +48,7 @@ fun LoginScreen(
 
             OutlinedTextField(
                 value = state.serverUrl,
-                onValueChange = viewModel::onUrlChange,
+                onValueChange = { viewModel.onUrlChange(it); urlExpanded = true },
                 label = { Text("服务器地址") },
                 placeholder = { Text("https://xxx.hf.space") },
                 modifier = Modifier.fillMaxWidth(),
@@ -55,9 +58,25 @@ fun LoginScreen(
                         IconButton(onClick = { viewModel.onUrlChange("") }) {
                             Icon(Icons.Default.Close, "清除地址")
                         }
+                    } else if (loginHistory.isNotEmpty()) {
+                        IconButton(onClick = { urlExpanded = !urlExpanded }) {
+                            Icon(Icons.Default.ArrowDropDown, "历史记录")
+                        }
                     }
                 },
             )
+            DropdownMenu(
+                expanded = urlExpanded && loginHistory.isNotEmpty(),
+                onDismissRequest = { urlExpanded = false },
+                modifier = Modifier.fillMaxWidth(0.85f),
+            ) {
+                loginHistory.forEach { url ->
+                    DropdownMenuItem(
+                        text = { Text(url, maxLines = 1) },
+                        onClick = { viewModel.onUrlChange(url); urlExpanded = false },
+                    )
+                }
+            }
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = state.apiKey,

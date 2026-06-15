@@ -43,3 +43,7 @@ data class UploadStatusResponse(
     val status: String,   // "pending" | "processing" | "done" | "error"
     val message: String,
 )
+
+data class MetaResponse(
+    val backend: String,
+)

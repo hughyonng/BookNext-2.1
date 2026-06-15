@@ -477,8 +477,8 @@ fun BookshelfScreen(
                             modifier = Modifier.fillMaxSize().background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                        Color.Transparent,
+                                        Color(0xFFF5F0EB),
+                                        Color(0xFFFAF8F5),
                                     ),
                                     startY = 0f, endY = 800f,
                                 )
@@ -512,8 +512,8 @@ fun BookshelfScreen(
                                 LazyVerticalGrid(
                                     columns = columns,
                                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(24.dp),
                                 ) {
                                     itemsIndexed(displayedBooks) { _, book ->
                                         val isSelected = selectedBooks.contains(book.bookId)

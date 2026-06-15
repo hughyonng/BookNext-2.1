@@ -39,8 +39,9 @@ interface BookNextApi {
     suspend fun streamBook(@Path("id") id: String): ResponseBody
 
     @Multipart
-    @POST("api/upload")
+    @POST
     suspend fun uploadBook(
+        @Url url: String,
         @Part file: MultipartBody.Part,
         @Part("title") title: RequestBody,
         @Part("author") author: RequestBody,
@@ -49,6 +50,9 @@ interface BookNextApi {
 
     @GET("api/upload/status/{taskId}")
     suspend fun getUploadStatus(@Path("taskId") taskId: String): UploadStatusResponse
+
+    @GET("api/_meta")
+    suspend fun getMeta(@Header("Authorization") auth: String): MetaResponse
 
     @DELETE("api/books/{id}")
     suspend fun deleteBook(@Path("id") id: String): Response<Unit>

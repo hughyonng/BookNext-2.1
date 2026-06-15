@@ -161,7 +161,10 @@ class BookshelfViewModel @Inject constructor(
                 val authorBody = entity.author.ifEmpty { "未知" }.toRequestBody("text/plain".toMediaType())
                 val ocrBody = "false".toRequestBody("text/plain".toMediaType())
 
-                apiClient.api().uploadBook(filePart, titleBody, authorBody, ocrBody)
+                val directUrl = accountPrefs.directUploadUrl.first()
+                    .ifBlank { accountPrefs.serverUrl.first().trimEnd('/') }
+                android.util.Log.d("Upload", "upload to: $directUrl/api/upload")
+                apiClient.api().uploadBook("$directUrl/api/upload", filePart, titleBody, authorBody, ocrBody)
             } catch (e: Exception) {
                 android.util.Log.w("BookshelfVM", "上传失败: ${e.message}")
             }
